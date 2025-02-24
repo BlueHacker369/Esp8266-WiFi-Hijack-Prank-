@@ -1,0 +1,95 @@
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <vector>
+
+const byte DNS_PORT = 53;
+IPAddress apIP(192, 168, 4, 1);
+DNSServer dnsServer;
+ESP8266WebServer webServer(80);
+
+int visitorCount = 0; // Unique visitor counter
+std::vector<String> connectedDevices; // List of known devices
+
+bool isNewDevice() {
+    struct station_info *station_list = wifi_softap_get_station_info();
+    while (station_list) {
+        String mac = "";
+        for (int i = 0; i < 6; i++) {
+            mac += String(station_list->bssid[i], HEX);
+            if (i < 5) mac += ":";
+        }
+        station_list = STAILQ_NEXT(station_list, next);
+
+        // Check if this MAC address is new
+        if (std::find(connectedDevices.begin(), connectedDevices.end(), mac) == connectedDevices.end()) {
+            connectedDevices.push_back(mac); // Add to known devices
+            return true; // It's a new visitor
+        }
+    }
+    return false; // Not a new visitor
+}
+
+void setup() {
+    Serial.begin(115200);
+    WiFi.mode(WIFI_AP);
+    WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0)); // Set AP IP
+    WiFi.softAP("CampusFreeWifi", "");  // Open WiFi network
+
+    // Start DNS server (forces all requests to resolve to ESP8266)
+    dnsServer.start(DNS_PORT, "*", apIP);
+
+    // Handle prank page requests
+    webServer.onNotFound([]() {
+        if (isNewDevice()) {
+            visitorCount++; // Only increase for new devices
+        }
+
+        webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        webServer.sendHeader("Pragma", "no-cache");
+        webServer.sendHeader("Expires", "-1");
+
+        String html = "<!DOCTYPE html><html><head>";
+        html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+        html += "<title>Warning</title>";
+        html += "<script>alert('WARNING: Do not connect to unknown WiFi networks!');</script>";
+        html += "</head><body style='text-align: center;'>";
+        html += "<h1>&#9888; Warning &#9888;</h1>";
+        html += "<h2>Are you serious? &#128529;</h2>";
+        html += "<h3>You can be hacked easily! &#10071;</h3>";
+        html += "<h4>&#9888; Do not connect to unknown free WiFi! &#9888;</h4>";
+        html += "<p>\"This prank is for educational purposes only!<br>";
+        html += "Created by: Delorn<br>";
+        html += "Follow me on Instagram: __bluehacker__<br>";
+        html += "Raising awareness about WiFi Hijacking!\"</p>";
+        html += "</body></html>";
+
+        webServer.send(200, "text/html", html);
+    });
+
+    // Hidden stats page to check visitor count
+    webServer.on("/stats", []() {
+        String statsPage = "<!DOCTYPE html><html><head>";
+        statsPage += "<title>Visitor Stats</title></head><body>";
+        statsPage += "<h2>Unique Visitors: " + String(visitorCount) + "</h2>";
+        statsPage += "<h3>Connected Devices:</h3><ul>";
+
+        for (const auto &mac : connectedDevices) {
+            statsPage += "<li>" + mac + "</li>";
+        }
+
+        statsPage += "</ul>";
+        statsPage += "<p>(This is only visible to you)</p>";
+        statsPage += "</body></html>";
+
+        webServer.send(200, "text/html", statsPage);
+    });
+
+    webServer.begin();
+}
+
+void loop() {
+    dnsServer.processNextRequest(); // Keep intercepting DNS requests
+    webServer.handleClient();
+}
