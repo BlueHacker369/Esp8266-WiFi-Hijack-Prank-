@@ -1,4 +1,4 @@
-//copy & paste 192.168.4.1/stats to access admin webpage
+//copy & paste 192.168.4.1/stats in browser to access admin webpage
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <DNSServer.h>
